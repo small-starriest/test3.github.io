@@ -1,16 +1,33 @@
-// 第一个表格的独立逻辑
+//第一个表格
 let jsonDataOverall = null;
 let sortOrderOverall = {};
 
+// 加载整体数据
 function loadOverallData() {
-    const storedData = localStorage.getItem('modelData-overall');
-    if (storedData) {
-        const models = JSON.parse(storedData);
-        models.forEach(model => insertRowOverall(model));
-    }
+    fetch('/data/overall') // 假设这是第一个表格的数据源
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(models => {
+            console.log('Loaded Overall models:', models); // 调试：查看加载的数据
+            const tableBody = document.getElementById('table-body-Overall');
+            tableBody.innerHTML = '';
+            models.forEach(model => insertRowOverall(model));
+
+            // 默认排序
+            if (Object.keys(sortOrderOverall).length === 0) {
+                sortOrderOverall['rank'] = 'asc'; // 默认排序字段
+                sortTableOverall('rank'); // 调用排序函数
+            }
+        })
+        .catch(error => console.error('Error loading data:', error));
 }
 
-document.getElementById('file-input-overall').addEventListener('change', function(event) {
+// 文件上传处理
+document.getElementById('file-input-Overall').addEventListener('change', function(event) {
     const file = event.target.files[0];
     if (!file) {
         alert("请选择一个 .json 文件");
@@ -21,7 +38,7 @@ document.getElementById('file-input-overall').addEventListener('change', functio
     reader.onload = function(e) {
         try {
             jsonDataOverall = JSON.parse(e.target.result);
-            document.getElementById('submit-button-overall').disabled = false;
+            document.getElementById('submit-button-Overall').disabled = false;
         } catch (error) {
             alert("文件格式错误，请确认为有效的 JSON 文件");
         }
@@ -29,18 +46,30 @@ document.getElementById('file-input-overall').addEventListener('change', functio
     reader.readAsText(file);
 });
 
-document.getElementById('submit-button-overall').addEventListener('click', function() {
+// 提交按钮处理
+document.getElementById('submit-button-Overall').addEventListener('click', function() {
     if (jsonDataOverall) {
-        insertRowOverall(jsonDataOverall);
-        saveToLocalStorageOverall(jsonDataOverall);
+        // 判断是否是数组
+        if (Array.isArray(jsonDataOverall)) {
+            jsonDataOverall.forEach(data => {
+                insertRowOverall(data);
+                saveToServerOverall(data); // 提交每个数据到服务器
+            });
+        } else {
+            insertRowOverall(jsonDataOverall);
+            saveToServerOverall(jsonDataOverall);
+        }
         jsonDataOverall = null;
-        document.getElementById('file-input-overall').value = "";
+        document.getElementById('file-input-Overall').value = "";
         this.disabled = true;
+    } else {
+        alert("没有有效的数据可提交。");
     }
 });
 
+// 插入行到表格
 function insertRowOverall(data) {
-    const tableBody = document.getElementById('table-body-overall');
+    const tableBody = document.getElementById('table-body-Overall');
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
         <td>${data.rank}</td>
@@ -56,34 +85,46 @@ function insertRowOverall(data) {
         <td>${data.reranking_average}</td>
     `;
     tableBody.appendChild(newRow);
-    if (Object.keys(sortOrderOverall).length === 0) {
-        sortOrderOverall['rank'] = 'asc';
-        sortTableOverall('rank', document.querySelector('#rank-toggle-overall'));
-    }
 }
 
-function saveToLocalStorageOverall(data) {
-    const storedData = localStorage.getItem('modelData-overall');
-    let models = storedData ? JSON.parse(storedData) : [];
-    models.push(data);
-    localStorage.setItem('modelData-overall', JSON.stringify(models));
+// 保存数据到服务器
+function saveToServerOverall(data) {
+    fetch('/save/data/overall', { // 修改为正确的保存路径
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data), // 将 data 转换为 JSON 字符串
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.text(); // 或使用 response.json()，根据后端返回的数据类型
+    })
+    .then(result => {
+        console.log("Overall data saved:", result);
+        loadOverallData();  // 在保存数据后更新表格
+    })
+    .catch(error => console.error('Error saving data:', error));
 }
 
-function sortTableOverall(column, toggleButton) {
-    const tableBody = document.getElementById('table-body-overall');
+// 排序功能
+function sortTableOverall(column) {
+    const tableBody = document.getElementById('table-body-Overall');
     const rows = Array.from(tableBody.rows);
     
-    for (let key in sortOrderOverall) {
-        if (key !== column) sortOrderOverall[key] = 'desc';
-    }
-
+    
+    // 切换排序顺序
     const currentOrder = sortOrderOverall[column] === 'asc' ? 'desc' : 'asc';
     sortOrderOverall[column] = currentOrder;
 
+    // 根据选择的列排序
     const sortedRows = rows.sort((a, b) => {
         const aValue = a.cells[columnIndexOverall(column)].innerText;
         const bValue = b.cells[columnIndexOverall(column)].innerText;
 
+        // 比较数值和字符串
         if (!isNaN(aValue) && !isNaN(bValue)) {
             return currentOrder === 'asc' ? aValue - bValue : bValue - aValue;
         } else {
@@ -91,39 +132,67 @@ function sortTableOverall(column, toggleButton) {
         }
     });
 
+    // 更新表格
     tableBody.innerHTML = '';
     sortedRows.forEach(row => tableBody.appendChild(row));
+
+    // 更新排序指示符
     updateToggleButtonsOverall(column);
 }
 
+// 更新排序指示符
 function updateToggleButtonsOverall(column) {
     const buttons = document.querySelectorAll('.toggle-button');
     buttons.forEach(button => {
-        button.textContent = '▲';
+        button.textContent = '▲'; // 默认方向
         button.parentElement.classList.remove('active');
     });
-    const currentButton = document.getElementById(`${column}-toggle-overall`);
-    currentButton.textContent = sortOrderOverall[column] === 'asc' ? '▼' : '▲';
+    const currentButton = document.getElementById(`${column}-toggle-Overall`);
+    currentButton.textContent = sortOrderOverall[column] == 'asc' ? '▼' : '▲';
     currentButton.parentElement.classList.add('active');
 }
 
+// 获取列索引
 function columnIndexOverall(column) {
     const columns = ['rank', 'model', 'model_size', 'memory_usage', 'embedding_dimensions', 'max_tokens', 'average', 'classification_average', 'clustering_average', 'pairclassification_average', 'reranking_average'];
     return columns.indexOf(column);
 }
 
-// 第二个表格的独立逻辑
-let jsonDataSTS = null;
-let sortOrderSTS = {};
+// 在 DOMContentLoaded 时加载数据
+document.addEventListener('DOMContentLoaded', loadOverallData);
 
+
+
+
+// 第二个表格的独立逻辑
+jsonDataSTS = null;
+sortOrderSTS = {};
+
+// 加载整体数据
 function loadSTSData() {
-    const storedData = localStorage.getItem('modelData_STS');
-    if (storedData) {
-        const models = JSON.parse(storedData);
-        models.forEach(model => insertRowSTS(model));
-    }
+    fetch('/data/sts') // 假设这是第一个表格的数据源
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(models => {
+            console.log('Loaded STS models:', models); // 调试：查看加载的数据
+            const tableBody = document.getElementById('table-body-STS');
+            tableBody.innerHTML = '';
+            models.forEach(model => insertRowSTS(model));
+
+            // 默认排序
+            if (Object.keys(sortOrderSTS).length === 0) {
+                sortOrderSTS['rank'] = 'asc'; // 默认排序字段
+                sortTableSTS('rank'); // 调用排序函数
+            }
+        })
+        .catch(error => console.error('Error loading data:', error));
 }
 
+// 文件上传处理
 document.getElementById('file-input-STS').addEventListener('change', function(event) {
     const file = event.target.files[0];
     if (!file) {
@@ -143,16 +212,28 @@ document.getElementById('file-input-STS').addEventListener('change', function(ev
     reader.readAsText(file);
 });
 
+// 提交按钮处理
 document.getElementById('submit-button-STS').addEventListener('click', function() {
     if (jsonDataSTS) {
-        insertRowSTS(jsonDataSTS);
-        saveToLocalStorageSTS(jsonDataSTS);
+        // 判断是否是数组
+        if (Array.isArray(jsonDataSTS)) {
+            jsonDataSTS.forEach(data => {
+                insertRowSTS(data);
+                saveToServerSTS(data); // 提交每个数据到服务器
+            });
+        } else {
+            insertRowSTS(jsonDataSTS);
+            saveToServerSTS(jsonDataSTS);
+        }
         jsonDataSTS = null;
         document.getElementById('file-input-STS').value = "";
         this.disabled = true;
+    } else {
+        alert("没有有效的数据可提交。");
     }
 });
 
+// 插入行到表格
 function insertRowSTS(data) {
     const tableBody = document.getElementById('table-body-STS');
     const newRow = document.createElement('tr');
@@ -170,34 +251,46 @@ function insertRowSTS(data) {
         <td>${data.reranking_average}</td>
     `;
     tableBody.appendChild(newRow);
-    if (Object.keys(sortOrderSTS).length === 0) {
-        sortOrderSTS['rank'] = 'asc';
-        sortTableSTS('rank', document.querySelector('#rank-toggle-STS'));
-    }
 }
 
-function saveToLocalStorageSTS(data) {
-    const storedData = localStorage.getItem('modelData_STS');
-    let models = storedData ? JSON.parse(storedData) : [];
-    models.push(data);
-    localStorage.setItem('modelData_STS', JSON.stringify(models));
+// 保存数据到服务器
+function saveToServerSTS(data) {
+    fetch('/save/data/sts', { // 修改为正确的保存路径
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data), // 将 data 转换为 JSON 字符串
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.text(); // 或使用 response.json()，根据后端返回的数据类型
+    })
+    .then(result => {
+        console.log("STS data saved:", result);
+        loadSTSData();  // 在保存数据后更新表格
+    })
+    .catch(error => console.error('Error saving data:', error));
 }
 
-function sortTableSTS(column, toggleButton) {
+// 排序功能
+function sortTableSTS(column) {
     const tableBody = document.getElementById('table-body-STS');
     const rows = Array.from(tableBody.rows);
     
-    for (let key in sortOrderSTS) {
-        if (key !== column) sortOrderSTS[key] = 'desc';
-    }
-
+    
+    // 切换排序顺序
     const currentOrder = sortOrderSTS[column] === 'asc' ? 'desc' : 'asc';
     sortOrderSTS[column] = currentOrder;
 
+    // 根据选择的列排序
     const sortedRows = rows.sort((a, b) => {
         const aValue = a.cells[columnIndexSTS(column)].innerText;
         const bValue = b.cells[columnIndexSTS(column)].innerText;
 
+        // 比较数值和字符串
         if (!isNaN(aValue) && !isNaN(bValue)) {
             return currentOrder === 'asc' ? aValue - bValue : bValue - aValue;
         } else {
@@ -205,15 +298,19 @@ function sortTableSTS(column, toggleButton) {
         }
     });
 
+    // 更新表格
     tableBody.innerHTML = '';
     sortedRows.forEach(row => tableBody.appendChild(row));
+
+    // 更新排序指示符
     updateToggleButtonsSTS(column);
 }
 
+// 更新排序指示符
 function updateToggleButtonsSTS(column) {
     const buttons = document.querySelectorAll('.toggle-button');
     buttons.forEach(button => {
-        button.textContent = '▲';
+        button.textContent = '▲'; // 默认方向
         button.parentElement.classList.remove('active');
     });
     const currentButton = document.getElementById(`${column}-toggle-STS`);
@@ -221,32 +318,45 @@ function updateToggleButtonsSTS(column) {
     currentButton.parentElement.classList.add('active');
 }
 
+// 获取列索引
 function columnIndexSTS(column) {
     const columns = ['rank', 'model', 'model_size', 'memory_usage', 'embedding_dimensions', 'max_tokens', 'average', 'classification_average', 'clustering_average', 'pairclassification_average', 'reranking_average'];
     return columns.indexOf(column);
 }
 
-// 页面加载时加载数据
-window.onload = function() {
-    loadOverallData();
-    loadSTSData();
-    loadRerankingData();
-};
-
+// 在 DOMContentLoaded 时加载数据
+document.addEventListener('DOMContentLoaded', loadSTSData);
 
 
 // 第三个表格的独立逻辑
-let jsonDataReranking = null;
-let sortOrderReranking = {};
+jsonDataReranking = null;
+sortOrderReranking = {};
 
+// 加载整体数据
 function loadRerankingData() {
-    const storedData = localStorage.getItem('modelData_Reranking');
-    if (storedData) {
-        const models = JSON.parse(storedData);
-        models.forEach(model => insertRowReranking(model));
-    }
+    fetch('/data/reranking') // 假设这是第一个表格的数据源
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(models => {
+            console.log('Loaded Reranking models:', models); // 调试：查看加载的数据
+            const tableBody = document.getElementById('table-body-Reranking');
+            tableBody.innerHTML = '';
+            models.forEach(model => insertRowReranking(model));
+
+            // 默认排序
+            if (Object.keys(sortOrderReranking).length === 0) {
+                sortOrderReranking['rank'] = 'asc'; // 默认排序字段
+                sortTableReranking('rank'); // 调用排序函数
+            }
+        })
+        .catch(error => console.error('Error loading data:', error));
 }
 
+// 文件上传处理
 document.getElementById('file-input-Reranking').addEventListener('change', function(event) {
     const file = event.target.files[0];
     if (!file) {
@@ -266,16 +376,28 @@ document.getElementById('file-input-Reranking').addEventListener('change', funct
     reader.readAsText(file);
 });
 
+// 提交按钮处理
 document.getElementById('submit-button-Reranking').addEventListener('click', function() {
     if (jsonDataReranking) {
-        insertRowReranking(jsonDataReranking);
-        saveToLocalStorageReranking(jsonDataReranking);
+        // 判断是否是数组
+        if (Array.isArray(jsonDataReranking)) {
+            jsonDataReranking.forEach(data => {
+                insertRowReranking(data);
+                saveToServerReranking(data); // 提交每个数据到服务器
+            });
+        } else {
+            insertRowReranking(jsonDataReranking);
+            saveToServerReranking(jsonDataReranking);
+        }
         jsonDataReranking = null;
         document.getElementById('file-input-Reranking').value = "";
         this.disabled = true;
+    } else {
+        alert("没有有效的数据可提交。");
     }
 });
 
+// 插入行到表格
 function insertRowReranking(data) {
     const tableBody = document.getElementById('table-body-Reranking');
     const newRow = document.createElement('tr');
@@ -293,34 +415,45 @@ function insertRowReranking(data) {
         <td>${data.reranking_average}</td>
     `;
     tableBody.appendChild(newRow);
-    if (Object.keys(sortOrderReranking).length === 0) {
-        sortOrderReranking['rank'] = 'asc';
-        sortTableReranking('rank', document.querySelector('#rank-toggle-Reranking'));
-    }
 }
 
-function saveToLocalStorageReranking(data) {
-    const storedData = localStorage.getItem('modelData_Reranking');
-    let models = storedData ? JSON.parse(storedData) : [];
-    models.push(data);
-    localStorage.setItem('modelData_Reranking', JSON.stringify(models));
+// 保存数据到服务器
+function saveToServerReranking(data) {
+    fetch('/save/data/reranking', { // 修改为正确的保存路径
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data), // 将 data 转换为 JSON 字符串
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.text(); // 或使用 response.json()，根据后端返回的数据类型
+    })
+    .then(result => {
+        console.log("Reranking data saved:", result);
+        loadRerankingData();  // 在保存数据后更新表格
+    })
+    .catch(error => console.error('Error saving data:', error));
 }
 
-function sortTableReranking(column, toggleButton) {
+// 排序功能
+function sortTableReranking(column) {
     const tableBody = document.getElementById('table-body-Reranking');
     const rows = Array.from(tableBody.rows);
     
-    for (let key in sortOrderReranking) {
-        if (key !== column) sortOrderReranking[key] = 'desc';
-    }
-
+    // 切换排序顺序
     const currentOrder = sortOrderReranking[column] === 'asc' ? 'desc' : 'asc';
     sortOrderReranking[column] = currentOrder;
 
+    // 根据选择的列排序
     const sortedRows = rows.sort((a, b) => {
         const aValue = a.cells[columnIndexReranking(column)].innerText;
         const bValue = b.cells[columnIndexReranking(column)].innerText;
 
+        // 比较数值和字符串
         if (!isNaN(aValue) && !isNaN(bValue)) {
             return currentOrder === 'asc' ? aValue - bValue : bValue - aValue;
         } else {
@@ -328,15 +461,19 @@ function sortTableReranking(column, toggleButton) {
         }
     });
 
+    // 更新表格
     tableBody.innerHTML = '';
     sortedRows.forEach(row => tableBody.appendChild(row));
+
+    // 更新排序指示符
     updateToggleButtonsReranking(column);
 }
 
+// 更新排序指示符
 function updateToggleButtonsReranking(column) {
     const buttons = document.querySelectorAll('.toggle-button');
     buttons.forEach(button => {
-        button.textContent = '▲';
+        button.textContent = '▲'; // 默认方向
         button.parentElement.classList.remove('active');
     });
     const currentButton = document.getElementById(`${column}-toggle-Reranking`);
@@ -344,14 +481,11 @@ function updateToggleButtonsReranking(column) {
     currentButton.parentElement.classList.add('active');
 }
 
+// 获取列索引
 function columnIndexReranking(column) {
     const columns = ['rank', 'model', 'model_size', 'memory_usage', 'embedding_dimensions', 'max_tokens', 'average', 'classification_average', 'clustering_average', 'pairclassification_average', 'reranking_average'];
     return columns.indexOf(column);
 }
 
-// 页面加载时加载数据
-window.onload = function() {
-    loadOverallData(); // 确保这是你想要的，可能需要单独处理
-    loadSTSData();
-    loadRerankingData();
-};
+// 在 DOMContentLoaded 时加载数据
+document.addEventListener('DOMContentLoaded', loadRerankingData);
